@@ -1,8 +1,9 @@
 # MicroPython SSD1306 OLED driver, I2C and SPI interfaces created by Adafruit
-# https://github.com/RuiSantosdotme/ESP-MicroPython/tree/master/code/Others/OLED
+# https://github.com/RuiSantosdotme/ESP-MicroPython/blob/master/code/Others/OLED/ssd1306.py
 
 import time
 import framebuf
+import math
 
 # register definitions
 SET_CONTRAST        = const(0x81)
@@ -13,9 +14,14 @@ SET_MEM_ADDR        = const(0x20)
 SET_COL_ADDR        = const(0x21)
 SET_PAGE_ADDR       = const(0x22)
 SET_DISP_START_LINE = const(0x40)
-SET_SEG_REMAP       = const(0xa0)
 SET_MUX_RATIO       = const(0xa8)
+# horizontal orientation
+# add 0x01 to flip
+SET_SEG_REMAP       = const(0xa0)
+# vertical standard direction
 SET_COM_OUT_DIR     = const(0xc0)
+# vertically 180 degrees turned
+SET_COMSCANDEC      = const(0xc8)
 SET_DISP_OFFSET     = const(0xd3)
 SET_COM_PIN_CFG     = const(0xda)
 SET_DISP_CLK_DIV    = const(0xd5)
@@ -25,6 +31,9 @@ SET_CHARGE_PUMP     = const(0x8d)
 
 
 class SSD1306:
+    """
+    Basic functionality to control a SSD1306 display
+    """
     def __init__(self, width, height, external_vcc):
         self.width = width
         self.height = height
@@ -43,7 +52,6 @@ class SSD1306:
             SET_MEM_ADDR, 0x00, # horizontal
             # resolution and layout
             SET_DISP_START_LINE | 0x00,
-            SET_SEG_REMAP | 0x01, # column addr 127 mapped to SEG0
             SET_MUX_RATIO, self.height - 1,
             SET_COM_OUT_DIR | 0x08, # scan from COM[N] to COM0
             SET_DISP_OFFSET, 0x00,
@@ -61,6 +69,7 @@ class SSD1306:
             SET_DISP | 0x01): # on
             self.write_cmd(cmd)
         self.fill(0)
+        self.rotate(0)
         self.show()
 
     def poweroff(self):
@@ -72,6 +81,21 @@ class SSD1306:
 
     def invert(self, invert):
         self.write_cmd(SET_NORM_INV | (invert & 1))
+
+    def rotate(self, rotate=0):
+        """
+        Rotate the display.
+        0 = default
+        2 = 180 degrees
+        """
+        if rotate == 0:
+            self.write_cmd(SET_SEG_REMAP | 0x01)
+            self.write_cmd(SET_COMSCANDEC)
+        elif rotate == 2:
+            self.write_cmd(SET_SEG_REMAP)
+            self.write_cmd(SET_COM_OUT_DIR)
+        else:
+            raise Exception('Unsupported rotation mode')
 
     def show(self):
         x0 = 0
@@ -100,8 +124,24 @@ class SSD1306:
     def text(self, string, x, y, col=1):
         self.framebuf.text(string, x, y, col)
 
+    def circle(self, centerx, centery, radius, middot=False):
+        """
+        Draw a circle
+        """
+        if middot:
+            self.pixel(centerx, centery, 1)
+
+        # https://stackoverflow.com/a/22778207
+        for angle in range(0, 360, 5):
+            x = int(round(radius * math.sin(math.radians(angle)) + centerx))
+            y = int(round(radius * math.cos(math.radians(angle)) + centery))
+            self.pixel(x, y, 1)
+
 
 class SSD1306_I2C(SSD1306):
+    """
+    Additions for interfacing via I2C
+    """
     def __init__(self, width, height, i2c, addr=0x3c, external_vcc=False):
         self.i2c = i2c
         self.addr = addr
@@ -131,6 +171,9 @@ class SSD1306_I2C(SSD1306):
 
 
 class SSD1306_SPI(SSD1306):
+    """
+    Additions for interfacing via SPI
+    """
     def __init__(self, width, height, spi, dc, res, cs, external_vcc=False):
         self.rate = 10 * 1024 * 1024
         dc.init(dc.OUT, value=0)
